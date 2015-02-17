@@ -1,0 +1,298 @@
+<script src="../components/matter-js/build/matter.js"></script>
+<link href='http://fonts.googleapis.com/css?family=Press+Start+2P' rel='stylesheet' type='text/css'>
+
+<dom-module id="flushed-app">
+  <style>
+    @keyframes scrollGameBackground {
+      from { transform : translate3d(0,0,0);     }
+      to   { transform : translate3d(-100%,0,0); }
+    }
+    @-webkit-keyframes scrollGameBackground {
+      from { -webkit-transform : translate3d(0,0,0);     }
+      to   { -webkit-transform : translate3d(-100%,0,0); }
+    }
+
+    flushed-app,
+    flushed-app #gameCanvas,
+    flushed-app #gameBGTileLeft,
+    flushed-app #gameBGTileRight {
+      overflow : hidden;
+      position : absolute;
+        top    : 0;
+        bottom : 0;
+        right  : 0;
+        left   : 0;
+    }
+
+    flushed-app {
+      background-color: #0099FF;
+    }
+
+    flushed-app #gameBGTileLeft,
+    flushed-app #gameBGTileRight {
+      background-image    : url('../img/desert_BG.png');
+      background-position : 0 100%;
+      background-repeat   : no-repeat;
+      background-size     : 100% auto;
+
+      -webkit-animation : scrollGameBackground 1.5s linear 0s infinite;
+      animation         : scrollGameBackground 1.5s linear 0s infinite;
+    }
+
+    flushed-app #gameBGTileRight {
+      left  : 100%;
+      right : auto;
+      width : 100%;
+    }
+
+    .flushed-app__score {
+      position : absolute;
+        top    : 20px;
+        right  : 20px;
+      font-size: 72px;
+      line-height: 72px;
+      font-family: 'Press Start 2P', sans-serif;
+      color: white;
+    }
+  </style>
+  <template>
+    <!-- Infinite scrolling background tiles -->
+    <div id='gameBGTileLeft'></div>
+    <div id='gameBGTileRight'></div>
+    <div id='gameCanvas'></div>
+
+    <div class='flushed-app__score'>[[score]]</div>
+  </template>
+</dom-module>
+<script>
+Polymer({
+  is: 'flushed-app',
+  configure:function(){
+    return {score: 0}
+  },
+  ready:function(){
+    var _this = this;
+    // Matter.js module aliases
+    var Engine          = Matter.Engine,
+        World           = Matter.World,
+        Body            = Matter.Body,
+        Bodies          = Matter.Bodies,
+        Constraint      = Matter.Constraint,
+        Composite       = Matter.Composite,
+        MouseConstraint = Matter.MouseConstraint;
+
+    var _sceneWidth;
+    var _sceneHeight;
+
+    // create a Matter.js engine
+    var engine = Engine.create(this.$.gameCanvas);
+    engine.render.options.wireframes = false;
+    engine.render.options.showBounds = false;
+
+    // create the toilet
+    var toilet = Composite.create({ label: 'Toilet' });
+    var toiletGroup = Body.nextGroup(true);
+    var toiletTexture  = Bodies.rectangle(300, 300, 80, 80, {
+      label: 'Toilet Texture',
+      collisionFilter: {
+        mask: 0,
+        group: 0
+      },
+      render: {
+        sprite: {
+          texture: 'img/toilet2.png'
+        }
+      }
+    });
+    var toiletBowl  = Bodies.rectangle(285, 330, 65, 65, {
+      label: 'Toilet Bowl',
+      collisionFilter: {
+        group: toiletGroup
+      },
+      render:{visible:false}
+    });
+    var toiletTank  = Bodies.rectangle(320, 280, 60, 70, {
+      label: 'Toilet Tank',
+      collisionFilter: {
+        group: toiletGroup
+      },
+      render:{visible:false}
+    });
+    var bowlToTank = Constraint.create({
+      bodyA: toiletBowl,
+      pointB: { x: -25, y: 25 },
+      pointA: { x: 18, y: -25 },
+      bodyB: toiletTank,
+      stiffness: 1,
+      angularStiffness: 1,
+      render:{visible:false}
+    });
+
+    var bowlToTank2 = Constraint.create({
+      bodyA: toiletBowl,
+      pointB: { x: -20, y: 25 },
+      pointA: { x: 18, y: -25 },
+      bodyB: toiletTank,
+      stiffness: 1,
+      angularStiffness: 1,
+      render:{visible:false}
+    });
+
+    var bowlToTexture = Constraint.create({
+      bodyB: toiletTexture,
+      pointB: { x: 10, y: 10 },
+      bodyA: toiletTank,
+      stiffness: 1,
+      angularStiffness: 1,
+      render:{visible:false}
+    });
+
+    var bowlToTexture2 = Constraint.create({
+      bodyA: toiletTexture,
+      pointA: { x: -10, y: -10 },
+      bodyB: toiletTank,
+      stiffness: 1,
+      angularStiffness: 1,
+      render:{visible:false}
+    });
+
+    Composite.addBody(toilet, toiletTexture);
+    Composite.addBody(toilet, toiletBowl);
+    Composite.addBody(toilet, toiletTank);
+    Composite.addConstraint(toilet, bowlToTank);
+    Composite.addConstraint(toilet, bowlToTank2);
+    Composite.addConstraint(toilet, bowlToTexture);
+    Composite.addConstraint(toilet, bowlToTexture2);
+
+    // add all of the bodies to the world
+    World.add(engine.world, [toilet] );
+
+    World.add(engine.world, MouseConstraint.create(engine, {
+      constraint: Constraint.create({
+        label: 'Mouse Constraint',
+        pointA: 0,
+        pointB: { x: 0, y: 0 },
+        length: .0001,
+        stiffness: 0.05,
+        angularStiffness: 1,
+        render: {
+          strokeStyle: 'transparent',
+          lineWidth: 0
+        }
+      })
+    }));
+
+    var allDaPoops = [];
+    var startTime = Date.now();
+
+    // Throw da poops!
+    setTimeout(function throwPoop(){
+      // Randomize where the poop is coming from
+      var throwHeightRatio = Math.random();
+      var initY = _sceneHeight * (throwHeightRatio * .5 + .25);
+
+      var poop = Bodies.rectangle(0, initY, 25, 25, {
+        label: 'Poop',
+        mass: 0,
+        render: {
+          sprite: { texture: 'img/poop.png', xScale:.75, yScale:.75 }
+        }
+      });
+
+      // Throw the poop
+      var xveloratio = Math.random() * (_sceneHeight / 640);
+      var yveloratio = Math.random() * (_sceneHeight / 640);
+
+      var xvelo = xveloratio *  0.01 + .005;
+      var yvelo = yveloratio * -0.025 + .001;
+
+      Body.applyForce(poop, {x:0,y:0}, {x:xvelo,y:yvelo});
+
+      World.add(engine.world, [poop]);
+
+      // Keep track of the poop, so we can remove it when it goes offscreen
+      allDaPoops.push(poop);
+
+      // Slowly make it harder (increase the frequence)
+      var waittime = 700 - (((Date.now() - startTime) / 10000) * 100);
+      waittime = Math.max(waittime, 300);
+      setTimeout(throwPoop, waittime);
+    }, 1000);
+
+
+    // Simluate a "floating" toilet by applying small random forces pushing
+    // the toilet up and down.
+    var toiletFloatForce = -0.0127;
+    setInterval(function(){
+      toiletFloatForce = -(0.0127 + ((Math.random() - 0.5) * .004));
+    }, 100);
+
+    Matter.Events.on(engine, 'tick', function() {
+      Body.applyForce(toiletBowl, {x:-10,y:0},{x:0,y:toiletFloatForce});
+
+      // Prevent the toilet from rotating
+      Body.setAngularVelocity(toiletBowl, 0);
+      Body.setAngularVelocity(toiletTank, 0);
+      Body.setAngularVelocity(toiletTexture, 0);
+
+      removeLostPoops();
+    });
+
+    // Watch for colliding poop
+    Matter.Events.on(engine, 'collisionStart', function(event) {
+      removePoopFromPairs(event.pairs);
+    });
+
+
+    function removeLostPoops(){
+      // Remove all offscreen poops
+      var poopToRemove = allDaPoops.filter(function(poop){
+        return poop.position.y > _sceneHeight;
+      });
+      poopToRemove.forEach(function(poop){
+        --_this.score;
+        World.remove(engine.world, poop);
+        allDaPoops.splice(allDaPoops.indexOf(poop), 1);
+      });
+    }
+
+    function removePoopBody(poopBody){
+      var index = allDaPoops.indexOf(poopBody);
+      if(index !== -1){
+        World.remove(engine.world, poopBody);
+        allDaPoops.splice(index, 1);
+        ++_this.score;
+      }
+    }
+
+    function removePoopFromPairs(pairs){
+      pairs.forEach(function(pair){
+        if((pair.bodyA === toiletBowl || pair.bodyB === toiletBowl)){
+          removePoopBody(pair.bodyA);
+          removePoopBody(pair.bodyB);
+        }
+      });
+    }
+
+    // DO IT
+    Engine.run(engine);
+
+    (function resizeScene(){
+      var boundsMax = engine.world.bounds.max,
+          renderOptions = engine.render.options,
+          canvas = engine.render.canvas;
+
+      _sceneWidth  = document.documentElement.clientWidth;
+      _sceneHeight = document.documentElement.clientHeight;
+
+      canvas.style.background = 'transparent';
+
+      boundsMax.x = _sceneWidth + 100;
+      boundsMax.y = _sceneHeight;
+
+      canvas.width = renderOptions.width = _sceneWidth;
+      canvas.height = renderOptions.height = _sceneHeight;
+    })();
+  }
+});
+</script>
